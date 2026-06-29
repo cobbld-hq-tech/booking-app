@@ -1,5 +1,7 @@
 import type { NextRequest } from "next/server";
 import { createBooking, getAvailableSlots } from "@/lib/db";
+import { sendBookingConfirmation } from "@/lib/notify";
+import { emitBookingEvent } from "@/lib/events";
 import { reportError } from "@/lib/sentry";
 
 export const runtime = "nodejs";
@@ -28,9 +30,30 @@ export async function POST(req: NextRequest): Promise<Response> {
     });
 
     if (result.ok) {
-      // TODO: send confirmation (Twilio SMS / Resend email). For the POC the
-      // confirmation is on-screen only; this success branch is the hook where a
-      // real immediate confirmation send would fire.
+      // The immediate confirmation is a plain send on insert success (no wait),
+      // and booking.created goes onto the event spine — which schedules the 24h
+      // reminder and feeds payback measurement. Neither may FAIL the booking, but
+      // a failure must not vanish either: allSettled keeps the booking safe, and
+      // we report any rejection so a dropped confirmation or (worse) a dropped
+      // booking.created that would skip the reminder is visible in Sentry.
+      const notifyResults = await Promise.allSettled([
+        sendBookingConfirmation({
+          serviceName: result.booking.serviceName,
+          customerName: result.booking.customerName,
+          customerPhone: String(phone ?? ""),
+          customerEmail: email ? String(email) : null,
+          startIso: result.booking.startIso,
+        }),
+        emitBookingEvent("booking.created", {
+          bookingId: result.booking.id,
+          startIso: result.booking.startIso,
+        }),
+      ]);
+      for (const r of notifyResults) {
+        if (r.status === "rejected") {
+          await reportError(r.reason, { route: "bookings/notify" });
+        }
+      }
       return Response.json({ ok: true, booking: result.booking });
     }
 

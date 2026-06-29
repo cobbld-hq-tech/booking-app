@@ -406,8 +406,10 @@ a { color: inherit; }
 .br-customer { color: var(--ink-soft); font-size: .9rem; }
 .br-customer a { color: var(--ink-soft); text-decoration: none; }
 .br-customer a:hover { color: var(--tang-text); }
-.badge { font-family: var(--font-mono); text-transform: uppercase; letter-spacing: .1em; font-size: .6rem; padding: .3rem .6rem; border-radius: var(--r-pill); }
+.badge { font-family: var(--font-mono); text-transform: uppercase; letter-spacing: .1em; font-size: .6rem; padding: .3rem .6rem; border-radius: var(--r-pill); white-space: nowrap; }
 .badge-muted { border: 1.5px solid var(--paper-line); color: var(--ink-soft); }
+.badge-done { border: 1.5px solid var(--tang); color: var(--tang-text); }
+.br-actions { display: flex; gap: .4rem; flex-wrap: wrap; justify-content: flex-end; }
 
 .timeoff-grid { display: grid; grid-template-columns: minmax(280px, 360px) 1fr; gap: 1.8rem; align-items: start; }
 .timeoff-add .timeoff-form { display: flex; flex-direction: column; gap: 0; }

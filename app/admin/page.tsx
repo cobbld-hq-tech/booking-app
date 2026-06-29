@@ -5,7 +5,13 @@ import { getUpcomingBookings, getUpcomingTimeOff } from "@/lib/db";
 import { formatDayLabel, formatTime } from "@/lib/time";
 import { SHOP } from "@/lib/business-hours";
 import { AddTimeOffForm } from "@/components/AddTimeOffForm";
-import { cancelBookingAction, logoutAdmin } from "./actions";
+import { cancelBookingAction, markDoneAction, markNoShowAction, logoutAdmin } from "./actions";
+
+const STATUS_LABEL: Record<string, string> = {
+  cancelled: "Cancelled",
+  completed: "Done",
+  no_show: "No-show",
+};
 
 export const dynamic = "force-dynamic";
 
@@ -52,9 +58,9 @@ export default async function AdminPage() {
               {bookings.map((b) => {
                 const start = new Date(b.startIso);
                 const end = new Date(b.endIso);
-                const cancelled = b.status !== "confirmed";
+                const inactive = b.status !== "confirmed";
                 return (
-                  <li key={b.id} className={`booking-row ${cancelled ? "is-cancelled" : ""}`}>
+                  <li key={b.id} className={`booking-row ${inactive ? "is-cancelled" : ""}`}>
                     <div className="br-when">
                       <span className="br-day">{formatDayLabel(start)}</span>
                       <span className="br-time mono">{formatTime(start)} &ndash; {formatTime(end)}</span>
@@ -67,13 +73,25 @@ export default async function AdminPage() {
                       </span>
                     </div>
                     <div className="br-actions">
-                      {cancelled ? (
-                        <span className="badge badge-muted">Cancelled</span>
+                      {b.status === "confirmed" ? (
+                        <>
+                          <form action={markDoneAction}>
+                            <input type="hidden" name="id" value={b.id} />
+                            <button type="submit" className="btn ghost sm">Done</button>
+                          </form>
+                          <form action={markNoShowAction}>
+                            <input type="hidden" name="id" value={b.id} />
+                            <button type="submit" className="btn ghost sm">No-show</button>
+                          </form>
+                          <form action={cancelBookingAction}>
+                            <input type="hidden" name="id" value={b.id} />
+                            <button type="submit" className="btn ghost sm">Cancel</button>
+                          </form>
+                        </>
                       ) : (
-                        <form action={cancelBookingAction}>
-                          <input type="hidden" name="id" value={b.id} />
-                          <button type="submit" className="btn ghost sm">Cancel</button>
-                        </form>
+                        <span className={`badge ${b.status === "completed" ? "badge-done" : "badge-muted"}`}>
+                          {STATUS_LABEL[b.status] ?? b.status}
+                        </span>
                       )}
                     </div>
                   </li>

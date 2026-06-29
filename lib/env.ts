@@ -11,6 +11,21 @@ function required(name: string): string {
   return value;
 }
 
+function optional(name: string, fallback: string): string {
+  const value = process.env[name];
+  return value && value.trim() !== "" ? value : fallback;
+}
+
+function positiveIntWithDefault(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw || raw.trim() === "") return fallback;
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isInteger(n) || n <= 0) {
+    throw new Error(`Environment variable ${name} must be a positive integer (got: ${JSON.stringify(raw)})`);
+  }
+  return n;
+}
+
 export const env = {
   // Required. Neon pooled Postgres connection string (host contains `-pooler`,
   // `sslmode=require`). Used by the @neondatabase/serverless HTTP driver in
@@ -35,6 +50,32 @@ export const env = {
   },
   get adminPassword(): string {
     return required("ADMIN_PASSWORD");
+  },
+
+  // ── Notifications (Phase 5+, all optional) ─────────────────────────────────
+  // Email via Resend. Without a key, email sends are skipped (logged, no-op).
+  get resendApiKey(): string | undefined {
+    return process.env.RESEND_API_KEY || undefined;
+  },
+  // From header for emails. Use a Resend-verified domain in production; the
+  // onboarding sender only delivers to the Resend account owner.
+  get resendFrom(): string {
+    return optional("RESEND_FROM", "Permian Auto Works <onboarding@resend.dev>");
+  },
+  // SMS via Twilio (same account as the missed-call tool). Without these three,
+  // SMS sends are skipped (logged, no-op) — wiring them on is just adding the keys.
+  get twilioAccountSid(): string | undefined {
+    return process.env.TWILIO_ACCOUNT_SID || undefined;
+  },
+  get twilioAuthToken(): string | undefined {
+    return process.env.TWILIO_AUTH_TOKEN || undefined;
+  },
+  get twilioNumber(): string | undefined {
+    return process.env.TWILIO_NUMBER || undefined;
+  },
+  // How many hours before the appointment the reminder fires. Default 24.
+  get reminderLeadHours(): number {
+    return positiveIntWithDefault("REMINDER_LEAD_HOURS", 24);
   },
 
   // Optional, may be undefined.

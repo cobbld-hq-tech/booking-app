@@ -357,3 +357,69 @@ export async function addTimeOff(input: AddTimeOffInput): Promise<{ ok: boolean;
   `;
   return { ok: true };
 }
+
+// ── Event spine + booking lifecycle (Phase 5) ────────────────────────────────
+
+/** Append a domain event to the Neon log (the payback/audit consumer of the
+ *  spine). Called by lib/events.ts alongside the Inngest send. */
+export async function logEvent(type: string, bookingId: string | null, data: unknown): Promise<void> {
+  await sql()`
+    INSERT INTO events (type, booking_id, data)
+    VALUES (${type}, ${bookingId}, ${JSON.stringify(data)}::jsonb)
+  `;
+}
+
+export interface BookingDetail {
+  id: string;
+  serviceName: string;
+  customerName: string;
+  customerPhone: string;
+  customerEmail: string | null;
+  startIso: string;
+  endIso: string;
+  status: string;
+}
+
+/** Full booking by id (any status). The reminder function re-reads this after its
+ *  durable wait to decide whether to still send. */
+export async function getBookingById(id: string): Promise<BookingDetail | null> {
+  const rows = await sql()`
+    SELECT b.id, s.name AS service_name, b.customer_name, b.customer_phone,
+           b.customer_email, b.start_time, b.end_time, b.status
+    FROM bookings b JOIN services s ON s.id = b.service_id
+    WHERE b.id = ${id}
+    LIMIT 1
+  `;
+  if (rows.length === 0) return null;
+  const r = rows[0];
+  return {
+    id: String(r.id),
+    serviceName: String(r.service_name),
+    customerName: String(r.customer_name),
+    customerPhone: String(r.customer_phone),
+    customerEmail: r.customer_email ? String(r.customer_email) : null,
+    startIso: new Date(r.start_time).toISOString(),
+    endIso: new Date(r.end_time).toISOString(),
+    status: String(r.status),
+  };
+}
+
+/** Mark a confirmed booking done (admin). Returns false if it was not confirmed. */
+export async function markBookingCompleted(id: string): Promise<boolean> {
+  const rows = await sql()`
+    UPDATE bookings SET status = 'completed'
+    WHERE id = ${id} AND status = 'confirmed'
+    RETURNING id
+  `;
+  return rows.length > 0;
+}
+
+/** Mark a confirmed booking a no-show (admin). Returns false if it was not confirmed. */
+export async function markBookingNoShow(id: string): Promise<boolean> {
+  const rows = await sql()`
+    UPDATE bookings SET status = 'no_show'
+    WHERE id = ${id} AND status = 'confirmed'
+    RETURNING id
+  `;
+  return rows.length > 0;
+}

@@ -4,7 +4,8 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { getAuth, ensureAdminSeeded, isAdminSession } from "@/lib/auth";
-import { cancelBooking, addTimeOff } from "@/lib/db";
+import { cancelBooking, addTimeOff, markBookingCompleted, markBookingNoShow } from "@/lib/db";
+import { emitBookingEvent } from "@/lib/events";
 import { parseDateString, zonedWallTimeToUtc } from "@/lib/time";
 import { reportError } from "@/lib/sentry";
 import { env } from "@/lib/env";
@@ -67,9 +68,42 @@ export async function cancelBookingAction(formData: FormData): Promise<void> {
   const id = String(formData.get("id") ?? "");
   if (id) {
     try {
-      await cancelBooking(id);
+      const cancelled = await cancelBooking(id);
+      // booking.cancelled cancels any in-flight reminder (cancelOn) and logs the event.
+      if (cancelled) await emitBookingEvent("booking.cancelled", { bookingId: id });
     } catch (error) {
       await reportError(error, { route: "admin/cancel" });
+    }
+  }
+  revalidatePath("/admin");
+}
+
+/** Mark a job done — emits booking.completed (the trigger for the future review
+ *  request; keying off this, not the clock, means a no-show never gets asked). */
+export async function markDoneAction(formData: FormData): Promise<void> {
+  await requireAdmin();
+  const id = String(formData.get("id") ?? "");
+  if (id) {
+    try {
+      const ok = await markBookingCompleted(id);
+      if (ok) await emitBookingEvent("booking.completed", { bookingId: id });
+    } catch (error) {
+      await reportError(error, { route: "admin/mark-done" });
+    }
+  }
+  revalidatePath("/admin");
+}
+
+/** Mark a no-show — emits booking.no_show (the trigger for the future follow-up). */
+export async function markNoShowAction(formData: FormData): Promise<void> {
+  await requireAdmin();
+  const id = String(formData.get("id") ?? "");
+  if (id) {
+    try {
+      const ok = await markBookingNoShow(id);
+      if (ok) await emitBookingEvent("booking.no_show", { bookingId: id });
+    } catch (error) {
+      await reportError(error, { route: "admin/no-show" });
     }
   }
   revalidatePath("/admin");

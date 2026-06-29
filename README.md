@@ -54,6 +54,8 @@ constraint, and the slot is instantly bookable again. Mixed service durations (3
 | Database | Neon Postgres (`@neondatabase/serverless`), `btree_gist` exclusion constraint |
 | Admin auth | Better Auth (email + password, one owner account) |
 | Errors | Sentry (`@sentry/nextjs`, manual capture; no-op without a DSN) |
+| Notifications | Resend (email) + Twilio (SMS), both no-op until keys are set |
+| Durable jobs | Inngest (the 24h reminder; cloud in prod, Dev Server locally) |
 | Hosting | Vercel (serverless, scale-to-zero) |
 
 No Tailwind. Design is cobbld "Workwear" tokens in `app/globals.css` (CSS variables) +
@@ -72,12 +74,23 @@ Public booking
                                                           /          \
                                                    lands              bounces (23P01)
                                                    confirmation       "just booked,
-                                                   screen             pick another"
-                                                   // TODO: send      + fresh times
-                                                   confirmation
+                                                   screen +           pick another"
+                                                   confirm send +     + fresh times
+                                                   booking.created
 
 Admin (/admin, gated)
-  sign in  ->  upcoming bookings  ->  cancel (frees slot) | add time-off
+  sign in  ->  upcoming bookings  ->  cancel (frees slot) | time-off | done | no-show
+
+Post-booking lifecycle (Phase 5-6)
+  booking.created  ->  [Neon events log]  +  [Inngest]
+                                               |
+                                               v
+                                     sleepUntil(start - 24h)
+                                               |
+                                        re-read fresh state
+                                          /            \
+                                  still confirmed     cancelled / done / no_show
+                                  send reminder       stop (cancelOn + re-check)
 ```
 
 ---
@@ -92,11 +105,12 @@ app/
   admin/
     page.tsx                    gated owner dashboard (bookings, time-off)
     login/page.tsx              owner sign-in
-    actions.ts                  server actions: login, logout, cancel, add time-off
+    actions.ts                  server actions: login, logout, cancel, time-off, done, no-show
   api/
     availability/route.ts       GET open times for a service + date
-    bookings/route.ts           POST — the atomic claim (handles 23P01)
+    bookings/route.ts           POST — atomic claim (23P01) + confirmation + booking.created
     auth/[...all]/route.ts       Better Auth handler
+    inngest/route.ts            Inngest serve endpoint (durable functions)
     health/route.ts             GET { ok: true }
 components/
   BookingFlow.tsx               client: service -> date -> time -> details -> confirm
@@ -109,6 +123,10 @@ lib/
   business-hours.ts             shop identity + hours (config-in-code, one shop)
   auth.ts                       Better Auth instance + admin seeding
   env.ts / sentry.ts            validated env access / error reporting
+  events.ts                     emit a domain event -> Neon events log + Inngest
+  notify.ts / email.ts / sms.ts confirmation + reminder copy; Resend + Twilio (guarded)
+  inngest/client.ts             Inngest client + event names
+  inngest/functions.ts          the durable 24h reminder (sleepUntil + cancelOn)
 db/
   schema.sql                    services, bookings (+ exclusion constraint), time_off
   seed.sql                      the four demo services
@@ -191,7 +209,23 @@ Or do it visually with two browser windows, per "The proof moment" above.
   (`instrumentation.ts`), and a Better Auth `databaseHooks` rejects any sign-up whose email is not
   `ADMIN_EMAIL` — so the public endpoint cannot create a stranger's account or pre-register the owner.
   Access to `/admin` is additionally gated on the owner email (compared case-insensitively).
-- **Confirmation is on-screen only.** The success branch in `app/api/bookings/route.ts` carries
-  a `// TODO: send confirmation` hook where a real Twilio/Resend send would fire. The timed
-  reminder/review/no-show sequences (Inngest) are a later layer, intentionally not in this POC.
+- **Confirmation + reminders are live (Phase 5-6).** On a successful booking the app fires an
+  immediate confirmation (a plain send, no wait: SMS via Twilio, email via Resend) and emits
+  `booking.created` onto the event spine (logged to the Neon `events` table *and* dispatched to
+  Inngest). A durable Inngest function then sends a reminder `REMINDER_LEAD_HOURS` (default 24)
+  before the appointment: it sleeps, re-reads fresh state after the wait, and cancels cleanly if
+  the booking was cancelled (`cancelOn`) or marked done/no-show. Sends are no-ops (logged) until
+  `RESEND_API_KEY` / Twilio creds are set. Admin "Done" / "No-show" controls emit
+  `booking.completed` / `booking.no_show` for payback measurement and the future review/follow-up
+  sequences.
+- **Event delivery is log-then-send, with no outbox sweeper.** `emitBookingEvent` writes the Neon
+  `events` row first, then calls `inngest.send`; a send failure is reported to Sentry but not
+  retried, so on an Inngest outage a reminder could be dropped (the booking + confirmation are
+  unaffected). Production hardening would add a `delivered_at` marker plus a cron that re-delivers
+  logged-but-undelivered events.
+- **Inngest prod keys are documented, not validated.** In production set `INNGEST_EVENT_KEY` +
+  `INNGEST_SIGNING_KEY` (see `.env.example`); locally the client auto-uses the Dev Server. If the
+  keys are absent in prod, durable jobs no-op (the failure now surfaces to Sentry via the point above).
+- **Review-request / no-show sequences (Phase 7-8) are not built.** Their trigger events are
+  already emitted and logged; only the durable functions are a later layer.
 - **No payment, no PII beyond name / phone / optional email.**

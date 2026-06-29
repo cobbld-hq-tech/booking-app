@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS bookings (
   created_at     timestamptz NOT NULL DEFAULT now(),
 
   CONSTRAINT bookings_end_after_start CHECK (end_time > start_time),
-  CONSTRAINT bookings_status_valid CHECK (status IN ('confirmed', 'cancelled')),
+  CONSTRAINT bookings_status_valid CHECK (status IN ('confirmed', 'cancelled', 'completed', 'no_show')),
 
   -- No two CONFIRMED bookings on the same resource may overlap in time. The
   -- WHERE clause is what makes cancellation free: setting status = 'cancelled'
@@ -73,3 +73,19 @@ CREATE TABLE IF NOT EXISTS time_off (
 
 CREATE INDEX IF NOT EXISTS time_off_resource_time_idx
   ON time_off (resource_id, starts_at);
+
+-- ── events ──────────────────────────────────────────────────────────────────
+-- The domain-event spine. Every transactional write emits an event here
+-- (booking.created / cancelled / completed / no_show). Two consumers read it:
+-- Inngest (durable functions — reminders etc.) and later payback measurement
+-- (bookings created, completions, no-shows). One spine, logged as it is emitted.
+CREATE TABLE IF NOT EXISTS events (
+  id         bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  type       text NOT NULL,            -- e.g. 'booking.created'
+  booking_id uuid,                     -- the subject booking, when applicable
+  data       jsonb,                    -- the event payload sent to Inngest
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS events_type_created_idx ON events (type, created_at);
+CREATE INDEX IF NOT EXISTS events_booking_idx ON events (booking_id);
