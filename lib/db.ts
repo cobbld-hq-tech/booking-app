@@ -1,5 +1,6 @@
 import { neon, NeonDbError, type NeonQueryFunction } from "@neondatabase/serverless";
 import { env } from "./env";
+import { reportError } from "./sentry";
 import { generateCandidateSlots, intervalsOverlap, type CandidateSlot } from "./availability";
 import { formatTime, todayLocalDateString, parseDateString, zonedWallTimeToUtc } from "./time";
 import { BOOKING_HORIZON_DAYS } from "./business-hours";
@@ -182,6 +183,57 @@ export async function getAvailableSlots(
       label: formatTime(slot.startUtc),
     })),
   };
+}
+
+/**
+ * Of the given shop-local dates, which have at least one OPEN start time for the
+ * service (used to disable empty day chips). Pulls all confirmed bookings + time-off
+ * across the whole window in two queries, then checks each day in JS.
+ */
+export async function getAvailableDates(serviceId: number, dateStrs: string[]): Promise<string[]> {
+  const service = await getServiceById(serviceId);
+  if (!service || dateStrs.length === 0) return [];
+
+  const perDay = dateStrs.map((d) => {
+    try {
+      return { d, slots: generateCandidateSlots(d, service.durationMinutes) };
+    } catch {
+      return { d, slots: [] as CandidateSlot[] };
+    }
+  });
+
+  const starts = perDay.flatMap((x) => x.slots.map((s) => s.startUtc.getTime()));
+  if (starts.length === 0) return [];
+  const winStart = new Date(Math.min(...starts));
+  const winEnd = new Date(Math.max(...perDay.flatMap((x) => x.slots.map((s) => s.endUtc.getTime()))));
+
+  const [bookings, blocks] = await Promise.all([
+    sql()`
+      SELECT start_time, end_time FROM bookings
+      WHERE resource_id = 1 AND status = 'confirmed'
+        AND start_time < ${winEnd.toISOString()} AND end_time > ${winStart.toISOString()}
+    `,
+    sql()`
+      SELECT starts_at, ends_at FROM time_off
+      WHERE resource_id = 1
+        AND starts_at < ${winEnd.toISOString()} AND ends_at > ${winStart.toISOString()}
+    `,
+  ]);
+  const taken: Array<[Date, Date]> = [
+    ...bookings.map((b) => [new Date(b.start_time), new Date(b.end_time)] as [Date, Date]),
+    ...blocks.map((t) => [new Date(t.starts_at), new Date(t.ends_at)] as [Date, Date]),
+  ];
+
+  const now = Date.now();
+  return perDay
+    .filter(({ slots }) =>
+      slots.some(
+        (slot) =>
+          slot.startUtc.getTime() > now &&
+          !taken.some(([s, e]) => intervalsOverlap(slot.startUtc, slot.endUtc, s, e)),
+      ),
+    )
+    .map(({ d }) => d);
 }
 
 // ── Create a booking (the claim) ─────────────────────────────────────────────
@@ -371,6 +423,7 @@ export async function logEvent(type: string, bookingId: string | null, data: unk
 
 export interface BookingDetail {
   id: string;
+  serviceId: number;
   serviceName: string;
   customerName: string;
   customerPhone: string;
@@ -381,10 +434,10 @@ export interface BookingDetail {
 }
 
 /** Full booking by id (any status). The reminder function re-reads this after its
- *  durable wait to decide whether to still send. */
+ *  durable wait to decide whether to still send; the manage page reads it too. */
 export async function getBookingById(id: string): Promise<BookingDetail | null> {
   const rows = await sql()`
-    SELECT b.id, s.name AS service_name, b.customer_name, b.customer_phone,
+    SELECT b.id, b.service_id, s.name AS service_name, b.customer_name, b.customer_phone,
            b.customer_email, b.start_time, b.end_time, b.status
     FROM bookings b JOIN services s ON s.id = b.service_id
     WHERE b.id = ${id}
@@ -394,6 +447,7 @@ export async function getBookingById(id: string): Promise<BookingDetail | null> 
   const r = rows[0];
   return {
     id: String(r.id),
+    serviceId: Number(r.service_id),
     serviceName: String(r.service_name),
     customerName: String(r.customer_name),
     customerPhone: String(r.customer_phone),
@@ -422,4 +476,159 @@ export async function markBookingNoShow(id: string): Promise<boolean> {
     RETURNING id
   `;
   return rows.length > 0;
+}
+
+// ── No-show follow-up stop condition ─────────────────────────────────────────
+
+/** Has this customer made a NEW confirmed booking since `sinceIso`? Used by the
+ *  no-show sequence to stop touching someone who already rebooked. Matches on
+ *  phone, or email when one is on file (a NULL email never matches, so it falls
+ *  back to phone). */
+export async function hasRebookedSince(
+  phone: string,
+  email: string | null,
+  sinceIso: string,
+): Promise<boolean> {
+  const rows = await sql()`
+    SELECT 1 FROM bookings
+    WHERE status = 'confirmed'
+      AND created_at > ${sinceIso}
+      AND (customer_phone = ${phone} OR customer_email = ${email})
+    LIMIT 1
+  `;
+  return rows.length > 0;
+}
+
+// ── Reschedule (customer self-service) ───────────────────────────────────────
+
+export type RescheduleResult =
+  | {
+      ok: true;
+      newBooking: BookingConfirmation;
+      customerPhone: string;
+      customerEmail: string | null;
+      oldBookingId: string;
+    }
+  | { ok: false; reason: "not_found" | "invalid" | "conflict"; message?: string };
+
+/**
+ * Move a confirmed booking to a new slot. Safe order: create the NEW booking first
+ * (atomic — it bounces on the exclusion constraint if the slot was taken), and only
+ * then cancel the old one, so a failed reschedule leaves the original intact. The
+ * caller emits the events and sends the fresh confirmation.
+ */
+export async function rescheduleBooking(
+  oldId: string,
+  dateStr: string,
+  startIso: string,
+): Promise<RescheduleResult> {
+  const rows = await sql()`
+    SELECT service_id, customer_name, customer_phone, customer_email, status
+    FROM bookings WHERE id = ${oldId} LIMIT 1
+  `;
+  if (rows.length === 0) return { ok: false, reason: "not_found" };
+  const old = rows[0];
+  if (String(old.status) !== "confirmed") {
+    return { ok: false, reason: "invalid", message: "This booking can no longer be changed." };
+  }
+
+  const created = await createBooking({
+    serviceId: Number(old.service_id),
+    dateStr,
+    startIso,
+    customerName: String(old.customer_name),
+    customerPhone: String(old.customer_phone),
+    customerEmail: old.customer_email ? String(old.customer_email) : null,
+  });
+  if (!created.ok) {
+    if (created.reason === "conflict") return { ok: false, reason: "conflict" };
+    return { ok: false, reason: "invalid", message: created.message };
+  }
+
+  // The new booking is in; release the old slot. If that second write fails, roll
+  // the new booking back so we never leave a duplicate confirmed booking (the
+  // original stays intact) instead of a silent orphan.
+  try {
+    await cancelBooking(oldId);
+  } catch (error) {
+    try {
+      await cancelBooking(created.booking.id);
+    } catch {
+      // Best effort; the booking ids are reported below so the duplicate is findable.
+    }
+    await reportError(error, { route: "db/reschedule", extra: { oldId, newId: created.booking.id } });
+    return { ok: false, reason: "invalid", message: "Could not move your booking. Your original time is unchanged." };
+  }
+
+  return {
+    ok: true,
+    newBooking: created.booking,
+    customerPhone: String(old.customer_phone),
+    customerEmail: old.customer_email ? String(old.customer_email) : null,
+    oldBookingId: oldId,
+  };
+}
+
+// ── Payback dashboard reads ──────────────────────────────────────────────────
+
+export interface PaybackStats {
+  total: number;
+  confirmed: number;
+  completed: number;
+  noShows: number;
+  cancelled: number;
+  upcoming: number;
+  /** No-shows as a fraction of served appointments (completed + no_shows), 0..1. */
+  noShowRate: number;
+}
+
+export async function getPaybackStats(): Promise<PaybackStats> {
+  const rows = await sql()`
+    SELECT
+      count(*)                                                            AS total,
+      count(*) FILTER (WHERE status = 'confirmed')                        AS confirmed,
+      count(*) FILTER (WHERE status = 'completed')                        AS completed,
+      count(*) FILTER (WHERE status = 'no_show')                          AS no_shows,
+      count(*) FILTER (WHERE status = 'cancelled')                        AS cancelled,
+      count(*) FILTER (WHERE status = 'confirmed' AND end_time > now())   AS upcoming
+    FROM bookings
+  `;
+  const r = rows[0];
+  const completed = Number(r.completed);
+  const noShows = Number(r.no_shows);
+  const served = completed + noShows;
+  return {
+    total: Number(r.total),
+    confirmed: Number(r.confirmed),
+    completed,
+    noShows,
+    cancelled: Number(r.cancelled),
+    upcoming: Number(r.upcoming),
+    noShowRate: served > 0 ? noShows / served : 0,
+  };
+}
+
+export interface ActivityItem {
+  type: string;
+  createdAtIso: string;
+  customerName: string | null;
+  serviceName: string | null;
+}
+
+/** Recent domain events (the spine), newest first, joined to the booking. */
+export async function getRecentActivity(limit = 12): Promise<ActivityItem[]> {
+  const rows = await sql()`
+    SELECT e.type, e.created_at, b.customer_name, s.name AS service_name
+    FROM events e
+    LEFT JOIN bookings b ON b.id = e.booking_id
+    LEFT JOIN services s ON s.id = b.service_id
+    ORDER BY e.created_at DESC
+    LIMIT ${limit}
+  `;
+  return rows.map((r) => ({
+    type: String(r.type),
+    createdAtIso: new Date(r.created_at).toISOString(),
+    customerName: r.customer_name ? String(r.customer_name) : null,
+    serviceName: r.service_name ? String(r.service_name) : null,
+  }));
 }

@@ -52,6 +52,10 @@ export function BookingFlow({ services, days, shopName, tzLabel }: Props) {
   const [conflict, setConflict] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [confirmation, setConfirmation] = useState<BookingConfirmation | null>(null);
+  // Which upcoming dates actually have an open slot for the chosen service. null
+  // means "not checked yet" (fall back to open/closed only).
+  const [availableDates, setAvailableDates] = useState<Set<string> | null>(null);
+  const [checkingDays, setCheckingDays] = useState(false);
 
   const loadSlots = useCallback(async (serviceId: number, dateStr: string) => {
     setLoadingSlots(true);
@@ -74,12 +78,27 @@ export function BookingFlow({ services, days, shopName, tzLabel }: Props) {
     }
   }, []);
 
+  const loadDays = useCallback(async (serviceId: number) => {
+    setCheckingDays(true);
+    setAvailableDates(null);
+    try {
+      const res = await fetch(`/api/availability/days?serviceId=${serviceId}`);
+      const data = await res.json();
+      if (res.ok) setAvailableDates(new Set<string>(data.availableDates ?? []));
+    } catch {
+      // Leave availableDates null: couldn't check, fall back to open/closed only.
+    } finally {
+      setCheckingDays(false);
+    }
+  }, []);
+
   function chooseService(s: Service) {
     setService(s);
     setSlot(null);
     setDay(null);
     setConflict(false);
     setStep("date");
+    void loadDays(s.id);
   }
 
   function chooseDay(d: DayOption) {
@@ -195,6 +214,9 @@ export function BookingFlow({ services, days, shopName, tzLabel }: Props) {
             <span className="v mono-time">{confirmation.id.slice(0, 8).toUpperCase()}</span>
           </div>
           <div className="actions">
+            <a className="btn" href={`/manage/${confirmation.id}`}>
+              Manage booking <span className="arr" aria-hidden="true">&rarr;</span>
+            </a>
             <button type="button" className="btn ghost" onClick={reset}>
               Book another
             </button>
@@ -249,22 +271,30 @@ export function BookingFlow({ services, days, shopName, tzLabel }: Props) {
             &larr; {service.name}
           </button>
           <p className="section-label">Pick a date &middot; {tzLabel.toLowerCase()} time</p>
-          <div className="day-rail">
-            {days.map((d) => (
-              <button
-                key={d.dateStr}
-                type="button"
-                className={`day-chip ${d.isToday ? "today" : ""} ${day?.dateStr === d.dateStr ? "selected" : ""}`}
-                disabled={!d.isOpen}
-                title={d.isOpen ? undefined : "Closed"}
-                onClick={() => chooseDay(d)}
-              >
-                <span className="dow">{d.isToday ? "Today" : d.weekdayShort}</span>
-                <span className="dnum">{d.dayNum}</span>
-                <span className="mon">{d.monthShort}</span>
-              </button>
-            ))}
-          </div>
+          {checkingDays && availableDates === null ? (
+            <p className="loading">Checking open days&hellip;</p>
+          ) : (
+            <div className="day-rail">
+              {days.map((d) => {
+                const noSlots = availableDates !== null && d.isOpen && !availableDates.has(d.dateStr);
+                const disabled = !d.isOpen || noSlots;
+                return (
+                  <button
+                    key={d.dateStr}
+                    type="button"
+                    className={`day-chip ${d.isToday ? "today" : ""} ${day?.dateStr === d.dateStr ? "selected" : ""}`}
+                    disabled={disabled}
+                    title={!d.isOpen ? "Closed" : noSlots ? "No open times" : undefined}
+                    onClick={() => chooseDay(d)}
+                  >
+                    <span className="dow">{d.isToday ? "Today" : d.weekdayShort}</span>
+                    <span className="dnum">{d.dayNum}</span>
+                    <span className="mon">{d.monthShort}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 

@@ -34,9 +34,12 @@ export default async function AdminPage() {
             <span className="brand-name">{SHOP.name}</span>
             <span className="mono admin-tag">Owner</span>
           </span>
-          <form action={logoutAdmin}>
-            <button type="submit" className="btn ghost sm on-ink">Sign out</button>
-          </form>
+          <div className="admin-nav">
+            <a className="mono admin-navlink" href="/admin/payback">Payback</a>
+            <form action={logoutAdmin}>
+              <button type="submit" className="btn ghost sm on-ink">Sign out</button>
+            </form>
+          </div>
         </div>
       </header>
 

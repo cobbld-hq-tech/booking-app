@@ -38,6 +38,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       // booking.created that would skip the reminder is visible in Sentry.
       const notifyResults = await Promise.allSettled([
         sendBookingConfirmation({
+          id: result.booking.id,
           serviceName: result.booking.serviceName,
           customerName: result.booking.customerName,
           customerPhone: String(phone ?? ""),

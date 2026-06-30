@@ -17,6 +17,7 @@ export interface BookingEmailOpts {
   intro: string;
   rows: EmailRow[];
   note: string;
+  cta?: { label: string; url: string };
 }
 
 const C = {
@@ -89,10 +90,19 @@ export function renderBookingEmail(o: BookingEmailOpts): string {
             </td>
           </tr>
           <tr>
-            <td class="pad" style="padding:18px 34px 28px;background:${C.bone};">
+            <td class="pad" style="padding:18px 34px ${o.cta ? "16px" : "28px"};background:${C.bone};">
               <p style="margin:0;font-family:${FONT_BODY};font-size:14px;line-height:1.5;color:${C.inkSoft};">${esc(o.note)}</p>
             </td>
-          </tr>
+          </tr>${
+            o.cta
+              ? `
+          <tr>
+            <td class="pad" style="padding:0 34px 28px;background:${C.bone};">
+              <a href="${esc(o.cta.url)}" style="display:inline-block;background:${C.ink};color:${C.bone};font-family:${FONT_BODY};font-weight:600;font-size:14px;text-decoration:none;padding:11px 22px;border-radius:100px;">${esc(o.cta.label)} &rarr;</a>
+            </td>
+          </tr>`
+              : ""
+          }
           <tr>
             <td class="pad" style="background:${C.ink};padding:18px 34px;">
               <a href="https://cobbld.com" style="font-family:${FONT_MONO};font-size:11px;letter-spacing:1.5px;text-transform:uppercase;color:${C.onInkMuted};text-decoration:none;">

@@ -81,6 +81,12 @@ export const env = {
     return positiveIntWithDefault("REMINDER_LEAD_HOURS", 1);
   },
 
+  // Public origin for customer-facing links (e.g. the "manage your booking" link in
+  // emails). Falls back to BETTER_AUTH_URL, then localhost.
+  get appBaseUrl(): string {
+    return process.env.PUBLIC_BASE_URL || process.env.BETTER_AUTH_URL || "http://localhost:3000";
+  },
+
   // Optional, may be undefined.
   get sentryDsn(): string | undefined {
     return process.env.SENTRY_DSN || undefined;
