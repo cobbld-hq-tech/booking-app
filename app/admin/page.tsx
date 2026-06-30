@@ -1,10 +1,11 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { getAuth, isAdminSession } from "@/lib/auth";
-import { getUpcomingBookings, getUpcomingTimeOff } from "@/lib/db";
+import { getUpcomingBookings, getUpcomingTimeOff, getOverdueBookings } from "@/lib/db";
 import { formatDayLabel, formatTime } from "@/lib/time";
 import { SHOP } from "@/lib/business-hours";
 import { AddTimeOffForm } from "@/components/AddTimeOffForm";
+import { OverdueAlerts } from "@/components/OverdueAlerts";
 import { cancelBookingAction, markDoneAction, markNoShowAction, logoutAdmin } from "./actions";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -19,9 +20,10 @@ export default async function AdminPage() {
   const session = await getAuth().api.getSession({ headers: await headers() });
   if (!isAdminSession(session)) redirect("/admin/login");
 
-  const [bookings, timeOff] = await Promise.all([
+  const [bookings, timeOff, overdue] = await Promise.all([
     getUpcomingBookings(),
     getUpcomingTimeOff(),
+    getOverdueBookings(),
   ]);
   const confirmedCount = bookings.filter((b) => b.status === "confirmed").length;
 
@@ -35,6 +37,15 @@ export default async function AdminPage() {
             <span className="mono admin-tag">Owner</span>
           </span>
           <div className="admin-nav">
+            <OverdueAlerts
+              items={overdue.map((b) => ({
+                id: b.id,
+                serviceName: b.serviceName,
+                customerName: b.customerName,
+                customerPhone: b.customerPhone,
+                startIso: b.startIso,
+              }))}
+            />
             <a className="mono admin-navlink" href="/admin/dashboard">Dashboard</a>
             <form action={logoutAdmin}>
               <button type="submit" className="btn ghost sm on-ink">Sign out</button>

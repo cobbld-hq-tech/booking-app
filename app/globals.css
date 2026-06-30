@@ -503,6 +503,10 @@ a { color: inherit; }
 .notif-actions { grid-column: 1 / -1; display: flex; gap: .5rem; margin-top: .4rem; }
 .notif-actions form { display: contents; }
 
+/* Inline Done / No-show actions inside the dashboard "Needs review" table row */
+.row-actions { display: inline-flex; gap: .5rem; justify-content: flex-end; }
+.row-actions form { display: contents; }
+
 @media (max-width: 720px) {
   .timeoff-grid { grid-template-columns: 1fr; }
   .booking-row { grid-template-columns: 1fr auto; }

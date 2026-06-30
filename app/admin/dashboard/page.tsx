@@ -4,8 +4,7 @@ import { getAuth, isAdminSession } from "@/lib/auth";
 import { getPaybackStats, getRecentActivity, getOverdueBookings } from "@/lib/db";
 import { formatDayLabel, formatTime } from "@/lib/time";
 import { SHOP } from "@/lib/business-hours";
-import { OverdueAlerts } from "@/components/OverdueAlerts";
-import { logoutAdmin } from "../actions";
+import { logoutAdmin, markDoneAction, markNoShowAction } from "../actions";
 
 export const dynamic = "force-dynamic";
 
@@ -55,15 +54,6 @@ export default async function DashboardPage() {
             <span className="mono admin-tag">Dashboard</span>
           </span>
           <div className="admin-nav">
-            <OverdueAlerts
-              items={overdue.map((b) => ({
-                id: b.id,
-                serviceName: b.serviceName,
-                customerName: b.customerName,
-                customerPhone: b.customerPhone,
-                startIso: b.startIso,
-              }))}
-            />
             <a className="mono admin-navlink" href="/admin">Bookings</a>
             <form action={logoutAdmin}>
               <button type="submit" className="btn ghost sm on-ink">Sign out</button>
@@ -87,6 +77,56 @@ export default async function DashboardPage() {
               </div>
             ))}
           </div>
+        </section>
+
+        <section className="admin-section">
+          <div className="admin-section-head">
+            <h2 className="admin-h2">Needs review</h2>
+            <span className="mono admin-count">{overdue.length} past due</span>
+          </div>
+          {overdue.length === 0 ? (
+            <div className="empty">
+              All caught up.
+              <span className="mono">Past appointments waiting to be closed out show here</span>
+            </div>
+          ) : (
+            <div className="data-table-wrap">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>When</th>
+                    <th>Service</th>
+                    <th>Customer</th>
+                    <th className="ta-right">Close out</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {overdue.map((b) => {
+                    const start = new Date(b.startIso);
+                    return (
+                      <tr key={b.id}>
+                        <td className="dt-when mono" data-label="When">{formatDayLabel(start)}, {formatTime(start)}</td>
+                        <td className="dt-strong" data-label="Service">{b.serviceName}</td>
+                        <td className="dt-muted" data-label="Customer">{b.customerName}</td>
+                        <td className="ta-right" data-label="Close out">
+                          <div className="row-actions">
+                            <form action={markDoneAction}>
+                              <input type="hidden" name="id" value={b.id} />
+                              <button type="submit" className="btn sm">Done</button>
+                            </form>
+                            <form action={markNoShowAction}>
+                              <input type="hidden" name="id" value={b.id} />
+                              <button type="submit" className="btn ghost sm">No-show</button>
+                            </form>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </section>
 
         <section className="admin-section">
