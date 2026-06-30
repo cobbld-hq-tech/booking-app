@@ -11,14 +11,19 @@ import { REMINDER_DAYTIME_START_HOUR, REMINDER_DAYTIME_END_HOUR } from "../busin
 // "see you soon" nudge REMINDER_LEAD_HOURS before the appointment.
 //
 // Canonical Inngest shape: the event fires, the function sleeps durably, it wakes
-// and re-reads FRESH state, then it acts or stops. cancelOn kills the run on
-// cancellation; the post-sleep status re-read is the backstop (and also catches a
-// booking marked completed / no_show during the wait).
+// and re-reads FRESH state, then it acts or stops. cancelOn kills the in-flight run
+// the moment the booking reaches ANY terminal state (cancelled / completed /
+// no_show), so it does not sit sleeping until its wake time; the post-sleep status
+// re-read stays as the backstop.
 export const bookingReminder = inngest.createFunction(
   {
     id: "booking-reminder",
     triggers: [{ event: "booking.created" }],
-    cancelOn: [{ event: "booking.cancelled", match: "data.bookingId" }],
+    cancelOn: [
+      { event: "booking.cancelled", match: "data.bookingId" },
+      { event: "booking.completed", match: "data.bookingId" },
+      { event: "booking.no_show", match: "data.bookingId" },
+    ],
   },
   async ({ event, step }) => {
     const bookingId = event.data.bookingId as string;
