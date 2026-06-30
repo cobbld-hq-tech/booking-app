@@ -16,13 +16,17 @@ export async function sendEmail(
   to: string,
   subject: string,
   text: string,
+  html?: string,
 ): Promise<{ sent: boolean }> {
   const c = client();
   if (!c) {
     console.log(`[email skipped: no RESEND_API_KEY] to=${to} subject=${JSON.stringify(subject)}`);
     return { sent: false };
   }
-  const { error } = await c.emails.send({ from: env.resendFrom, to, subject, text });
+  // Send both: html for styled clients, text as the fallback (and for deliverability).
+  const { error } = await c.emails.send(
+    html ? { from: env.resendFrom, to, subject, html, text } : { from: env.resendFrom, to, subject, text },
+  );
   if (error) throw new Error(`Resend send failed: ${error.message}`);
   return { sent: true };
 }
