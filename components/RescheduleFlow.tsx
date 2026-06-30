@@ -23,6 +23,7 @@ export function RescheduleFlow({ bookingId, serviceId, serviceName, days, tzLabe
   const [slot, setSlot] = useState<AvailableSlot | null>(null);
   const [state, action, pending] = useActionState(rescheduleAction, initial);
   const [availableDates, setAvailableDates] = useState<Set<string> | null>(null);
+  const [checkingDays, setCheckingDays] = useState(true);
 
   useEffect(() => {
     let active = true;
@@ -33,6 +34,8 @@ export function RescheduleFlow({ bookingId, serviceId, serviceName, days, tzLabe
         if (active && res.ok) setAvailableDates(new Set<string>(data.availableDates ?? []));
       } catch {
         // leave null = unrestricted
+      } finally {
+        if (active) setCheckingDays(false);
       }
     })();
     return () => {
@@ -73,25 +76,29 @@ export function RescheduleFlow({ bookingId, serviceId, serviceName, days, tzLabe
   return (
     <div className="panel">
       <p className="section-label">Pick a new date &middot; {tzLabel.toLowerCase()} time</p>
-      <div className="day-rail">
-        {days.map((d) => {
-          const noSlots = availableDates !== null && d.isOpen && !availableDates.has(d.dateStr);
-          return (
-            <button
-              key={d.dateStr}
-              type="button"
-              className={`day-chip ${d.isToday ? "today" : ""} ${day?.dateStr === d.dateStr ? "selected" : ""}`}
-              disabled={!d.isOpen || noSlots}
-              title={!d.isOpen ? "Closed" : noSlots ? "No open times" : undefined}
-              onClick={() => chooseDay(d)}
-            >
-              <span className="dow">{d.isToday ? "Today" : d.weekdayShort}</span>
-              <span className="dnum">{d.dayNum}</span>
-              <span className="mon">{d.monthShort}</span>
-            </button>
-          );
-        })}
-      </div>
+      {checkingDays && availableDates === null ? (
+        <p className="loading">Checking open days&hellip;</p>
+      ) : (
+        <div className="day-rail">
+          {days.map((d) => {
+            const noSlots = availableDates !== null && d.isOpen && !availableDates.has(d.dateStr);
+            return (
+              <button
+                key={d.dateStr}
+                type="button"
+                className={`day-chip ${d.isToday ? "today" : ""} ${day?.dateStr === d.dateStr ? "selected" : ""}`}
+                disabled={!d.isOpen || noSlots}
+                title={!d.isOpen ? "Closed" : noSlots ? "No open times" : undefined}
+                onClick={() => chooseDay(d)}
+              >
+                <span className="dow">{d.isToday ? "Today" : d.weekdayShort}</span>
+                <span className="dnum">{d.dayNum}</span>
+                <span className="mon">{d.monthShort}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {day && (
         <div style={{ marginTop: "1.4rem" }}>

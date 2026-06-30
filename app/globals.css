@@ -453,6 +453,10 @@ a { color: inherit; }
   .data-table tbody tr:last-child { border-bottom: none; }
   .data-table td.ta-right { text-align: left; }
   .data-table .dt-when { color: var(--ink-soft); }
+  .data-table td[data-label]::before {
+    content: attr(data-label) ": "; font-family: var(--font-mono); text-transform: uppercase;
+    letter-spacing: .08em; font-size: .58rem; color: var(--ink-soft); margin-right: .4rem;
+  }
 }
 
 @media (max-width: 720px) {

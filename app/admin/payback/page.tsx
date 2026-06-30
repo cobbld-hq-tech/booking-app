@@ -36,7 +36,7 @@ export default async function PaybackPage() {
     { label: "Total bookings", value: booked },
     { label: "Upcoming", value: stats.upcoming },
     { label: "Completed", value: stats.completed },
-    { label: "No-shows", value: stats.noShows, sub: served > 0 ? rateLabel : undefined },
+    { label: "No-shows", value: stats.noShows, sub: served > 0 && stats.noShows > 0 ? rateLabel : undefined },
     { label: "Cancelled", value: stats.cancelled },
   ];
 
@@ -102,8 +102,8 @@ export default async function PaybackPage() {
                     return (
                       <tr key={i}>
                         <td><span className={`badge ${badgeClass(a.type)}`}>{EVENT_LABEL[a.type] ?? a.type}</span></td>
-                        <td className="dt-strong">{a.customerName ?? "—"}</td>
-                        <td className="dt-muted">{a.serviceName ?? "—"}</td>
+                        <td className="dt-strong" data-label="Customer">{a.customerName ?? "—"}</td>
+                        <td className="dt-muted" data-label="Service">{a.serviceName ?? "—"}</td>
                         <td className="dt-when mono ta-right">{formatDayLabel(d)}, {formatTime(d)}</td>
                       </tr>
                     );

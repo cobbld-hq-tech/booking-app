@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 // Type-only imports: erased at compile time, so the Neon/server code in lib/db
 // never reaches the client bundle. The formatters from lib/time are pure Intl
 // and safe to run in the browser.
@@ -56,14 +56,19 @@ export function BookingFlow({ services, days, shopName, tzLabel }: Props) {
   // means "not checked yet" (fall back to open/closed only).
   const [availableDates, setAvailableDates] = useState<Set<string> | null>(null);
   const [checkingDays, setCheckingDays] = useState(false);
+  // Monotonic request tokens: a slow response can't overwrite a newer selection.
+  const slotsReq = useRef(0);
+  const daysReq = useRef(0);
 
   const loadSlots = useCallback(async (serviceId: number, dateStr: string) => {
+    const reqId = ++slotsReq.current;
     setLoadingSlots(true);
     setSlotError(null);
     setSlots(null);
     try {
       const res = await fetch(`/api/availability?serviceId=${serviceId}&date=${dateStr}`);
       const data = await res.json();
+      if (reqId !== slotsReq.current) return; // superseded by a newer day/service
       if (!res.ok) {
         setSlotError(data.error ?? "Could not load times.");
         setSlots([]);
@@ -71,24 +76,27 @@ export function BookingFlow({ services, days, shopName, tzLabel }: Props) {
         setSlots(data.slots ?? []);
       }
     } catch {
+      if (reqId !== slotsReq.current) return;
       setSlotError("Could not load times. Check your connection and try again.");
       setSlots([]);
     } finally {
-      setLoadingSlots(false);
+      if (reqId === slotsReq.current) setLoadingSlots(false);
     }
   }, []);
 
   const loadDays = useCallback(async (serviceId: number) => {
+    const reqId = ++daysReq.current;
     setCheckingDays(true);
     setAvailableDates(null);
     try {
       const res = await fetch(`/api/availability/days?serviceId=${serviceId}`);
       const data = await res.json();
+      if (reqId !== daysReq.current) return; // superseded by a newer service pick
       if (res.ok) setAvailableDates(new Set<string>(data.availableDates ?? []));
     } catch {
       // Leave availableDates null: couldn't check, fall back to open/closed only.
     } finally {
-      setCheckingDays(false);
+      if (reqId === daysReq.current) setCheckingDays(false);
     }
   }, []);
 

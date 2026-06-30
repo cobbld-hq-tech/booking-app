@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { getBookingById } from "@/lib/db";
 import { listUpcomingDays, formatLongDate, formatTime } from "@/lib/time";
-import { BUSINESS_HOURS, SHOP } from "@/lib/business-hours";
+import { BUSINESS_HOURS, SHOP, BOOKING_WINDOW_DAYS } from "@/lib/business-hours";
 import { BrandMark } from "@/components/BrandMark";
 import { RescheduleFlow } from "@/components/RescheduleFlow";
 
@@ -14,7 +14,7 @@ export default async function ReschedulePage({ params }: { params: Promise<{ id:
     redirect(`/manage/${id}`);
   }
 
-  const days = listUpcomingDays(14, (weekday) => BUSINESS_HOURS[weekday] !== null);
+  const days = listUpcomingDays(BOOKING_WINDOW_DAYS, (weekday) => BUSINESS_HOURS[weekday] !== null);
   const start = new Date(booking.startIso);
 
   return (

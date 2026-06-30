@@ -1,6 +1,6 @@
 import { getActiveServices } from "@/lib/db";
 import { listUpcomingDays } from "@/lib/time";
-import { BUSINESS_HOURS, SHOP, HOURS_DISPLAY } from "@/lib/business-hours";
+import { BUSINESS_HOURS, SHOP, HOURS_DISPLAY, BOOKING_WINDOW_DAYS } from "@/lib/business-hours";
 import { BookingFlow } from "@/components/BookingFlow";
 import { BrandMark } from "@/components/BrandMark";
 
@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 
 export default async function Home() {
   const services = await getActiveServices();
-  const days = listUpcomingDays(14, (weekday) => BUSINESS_HOURS[weekday] !== null);
+  const days = listUpcomingDays(BOOKING_WINDOW_DAYS, (weekday) => BUSINESS_HOURS[weekday] !== null);
 
   return (
     <div className="page">
