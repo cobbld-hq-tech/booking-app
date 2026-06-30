@@ -212,10 +212,13 @@ Or do it visually with two browser windows, per "The proof moment" above.
 - **Confirmation + reminders are live (Phase 5-6).** On a successful booking the app fires an
   immediate confirmation (a plain send, no wait: SMS via Twilio, email via Resend) and emits
   `booking.created` onto the event spine (logged to the Neon `events` table *and* dispatched to
-  Inngest). A durable Inngest function then sends a reminder `REMINDER_LEAD_HOURS` (default 24)
-  before the appointment: it sleeps, re-reads fresh state after the wait, and cancels cleanly if
-  the booking was cancelled (`cancelOn`) or marked done/no-show. Sends are no-ops (logged) until
-  `RESEND_API_KEY` / Twilio creds are set. Admin "Done" / "No-show" controls emit
+  Inngest). A durable Inngest function then schedules **two** reminders off that booking: a
+  day-ahead reminder (`REMINDER_LEAD_HOURS`, default 24 — long enough to reschedule, which lets
+  the shop refill the slot) and a same-day "see you soon" nudge (`SECOND_REMINDER_LEAD_HOURS`,
+  default 2). Both send instants are clamped into daytime hours so a timer never texts in the small
+  hours (under any lead, across DST); each sleeps, re-reads fresh state after its wait, and stops
+  cleanly if the booking was cancelled (`cancelOn`) or marked done/no-show. Sends are no-ops
+  (logged) until `RESEND_API_KEY` / Twilio creds are set. Admin "Done" / "No-show" controls emit
   `booking.completed` / `booking.no_show` for payback measurement and the future review/follow-up
   sequences.
 - **Event delivery is log-then-send, with no outbox sweeper.** `emitBookingEvent` writes the Neon

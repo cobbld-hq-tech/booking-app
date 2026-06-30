@@ -73,9 +73,14 @@ export const env = {
   get twilioNumber(): string | undefined {
     return process.env.TWILIO_NUMBER || undefined;
   },
-  // How many hours before the appointment the reminder fires. Default 24.
+  // How many hours before the appointment the day-ahead reminder fires. Default 24.
   get reminderLeadHours(): number {
     return positiveIntWithDefault("REMINDER_LEAD_HOURS", 24);
+  },
+  // The same-day "see you soon" nudge, hours before the appointment. Default 2.
+  // Should be less than REMINDER_LEAD_HOURS; if it is not, the nudge is skipped.
+  get secondReminderLeadHours(): number {
+    return positiveIntWithDefault("SECOND_REMINDER_LEAD_HOURS", 2);
   },
 
   // Optional, may be undefined.

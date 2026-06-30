@@ -35,9 +35,33 @@ export async function sendBookingConfirmation(b: NotifiableBooking): Promise<voi
   await deliver(b, { sms, subject, email });
 }
 
-/** The 24h reminder, sent from the Inngest function after its durable wait. */
-export async function sendBookingReminder(b: NotifiableBooking): Promise<void> {
+/** Which reminder in the sequence: the day-ahead one (time to reschedule) or the
+ *  same-day "see you soon" nudge. */
+export type ReminderKind = "ahead" | "soon";
+
+/** A reminder, sent from the Inngest function after a durable wait. The day-ahead
+ *  one ("ahead") leans on the rescheduling window; the same-day one ("soon") is a
+ *  light nudge. */
+export async function sendBookingReminder(
+  b: NotifiableBooking,
+  kind: ReminderKind = "ahead",
+): Promise<void> {
   const when = whenLine(b.startIso);
+
+  if (kind === "soon") {
+    // Keep the date in the copy: with a large SECOND_REMINDER_LEAD_HOURS this
+    // nudge can land the day before, so a bare time would misread as same-day.
+    const sms = `See you soon at ${SHOP.name}: your ${b.serviceName} is coming up on ${when}. Call ${SHOP.phone} if anything changes.`;
+    const subject = `See you soon at ${SHOP.name}`;
+    const email =
+      `Hi ${b.customerName},\n\n` +
+      `Just a heads up that your ${b.serviceName} at ${SHOP.name} is coming up soon:\n\n` +
+      `${when}\n\n` +
+      `See you in a bit. Call ${SHOP.phone} if anything changes.`;
+    await deliver(b, { sms, subject, email });
+    return;
+  }
+
   const sms = `Reminder from ${SHOP.name}: your ${b.serviceName} is coming up on ${when}. Call ${SHOP.phone} to reschedule.`;
   const subject = `Reminder: your appointment at ${SHOP.name}`;
   const email =

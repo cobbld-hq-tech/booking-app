@@ -122,6 +122,38 @@ export function formatTime(instant: Date, timeZone: string = TIMEZONE): string {
   }).format(instant);
 }
 
+/** The shop-local hour (0-23) of an instant. Used to clamp reminder sends to
+ *  daytime so a timer never texts in the small hours. */
+export function localHour(instant: Date, timeZone: string = TIMEZONE): number {
+  const h = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour: "2-digit",
+    hour12: false,
+  }).format(instant);
+  const n = Number(h);
+  return n === 24 ? 0 : n;
+}
+
+/**
+ * Pull a send instant into the shop-local daytime window [startHour, endHour) so
+ * a reminder never fires in the small hours, under any lead and across DST. If
+ * the instant is before the window it moves to startHour the same local day; if
+ * at/after the window it moves to startHour the NEXT local day. The caller drops
+ * any result that lands at/after the appointment.
+ */
+export function clampToDaytime(
+  ms: number,
+  startHour: number,
+  endHour: number,
+  timeZone: string = TIMEZONE,
+): number {
+  const hour = localHour(new Date(ms), timeZone);
+  if (hour >= startHour && hour < endHour) return ms;
+  const { year, month, day } = parseDateString(localDateString(new Date(ms), timeZone));
+  const targetDay = hour < startHour ? day : day + 1;
+  return zonedWallTimeToUtc(year, month, targetDay, startHour, 0, timeZone).getTime();
+}
+
 /** "Mon, Jun 30" */
 export function formatDayLabel(instant: Date, timeZone: string = TIMEZONE): string {
   return new Intl.DateTimeFormat("en-US", {

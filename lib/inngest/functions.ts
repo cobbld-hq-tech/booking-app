@@ -1,64 +1,93 @@
 import { inngest } from "./client";
 import { getBookingById } from "../db";
 import { sendBookingReminder } from "../notify";
+import { clampToDaytime } from "../time";
 import { env } from "../env";
+import { REMINDER_DAYTIME_START_HOUR, REMINDER_DAYTIME_END_HOUR } from "../business-hours";
 
-// Phase 6: the 24h reminder. This is the canonical Inngest shape — an event fires,
-// the function sleeps durably, it wakes and re-reads FRESH state, then it either
-// acts or stops. The stop condition reads real data after the sleep, never a
-// decision made before it.
+// Phase 6: the appointment reminders. Two durable waits hang off one booking:
+// a day-ahead reminder (its job is to give time to reschedule, which lets the
+// shop refill the slot) and a same-day "see you soon" nudge. The canonical
+// Inngest shape: an event fires, the function sleeps, it wakes and re-reads FRESH
+// state, then it acts or stops. cancelOn kills the whole run on cancellation; the
+// post-sleep status re-reads are the backstop (and also catch completed/no_show).
 export const bookingReminder = inngest.createFunction(
   {
     id: "booking-reminder",
     triggers: [{ event: "booking.created" }],
-    // The cleanest cancellation: if the booking is cancelled, kill the in-flight
-    // run outright. The post-sleep status re-read below is the backstop.
     cancelOn: [{ event: "booking.cancelled", match: "data.bookingId" }],
   },
   async ({ event, step }) => {
     const bookingId = event.data.bookingId as string;
 
-    // Load the booking to compute when the reminder is due.
     const initial = await step.run("load-booking", () => getBookingById(bookingId));
     if (!initial || initial.status !== "confirmed") {
       return { skipped: "not confirmed when scheduled" };
     }
 
-    // Freeze the schedule-time decision INSIDE a step so its result is memoized.
-    // Critical: if `reminderMs <= Date.now()` were evaluated outside a step, the
-    // wake replay (which re-runs all non-step code) would re-check it against the
-    // now-elapsed clock, flip it true, and skip the send. Returning a number, not
-    // a Date — step results must be JSON-serializable.
-    const plan = await step.run("plan-reminder", () => {
+    // Freeze BOTH reminder decisions at schedule time, INSIDE a step, so the
+    // results are memoized. If `<= Date.now()` were evaluated outside a step it
+    // would be re-checked against the elapsed clock on every wake replay and flip
+    // (the bug that silently skipped the single reminder). The send instants are
+    // pulled into the daytime window so neither reminder texts in the small hours
+    // (under any lead, across DST); a send that clamps to at/after the appointment
+    // is dropped. Values are numbers — step results must be JSON-serializable.
+    const plan = await step.run("plan-reminders", () => {
       const startMs = new Date(initial.startIso).getTime();
-      const reminderMs = startMs - env.reminderLeadHours * 60 * 60 * 1000;
-      return { reminderMs, withinLeadWindow: reminderMs <= Date.now() };
-    });
-    if (plan.withinLeadWindow) {
-      // Booked inside the lead window (e.g. same-day). The confirmation already
-      // covers it, so we skip the reminder rather than send a near-duplicate.
-      return { skipped: "within reminder lead window" };
-    }
-
-    // The durable wait. This is the entire reason this job is Inngest and not a
-    // plain send: the function can sleep for hours or days and resume exactly.
-    await step.sleepUntil("wait-until-reminder", new Date(plan.reminderMs));
-
-    // Re-read fresh state AFTER the wait. cancelOn already kills cancelled runs;
-    // this also stops a booking that was marked completed / no_show meanwhile.
-    const fresh = await step.run("recheck-booking", () => getBookingById(bookingId));
-    if (!fresh || fresh.status !== "confirmed") {
-      return { stopped: "no longer confirmed after wait" };
-    }
-
-    // Each outbound send is its own step, so a later retry re-runs only the send
-    // and never re-sleeps or double-texts.
-    await step.run("send-reminder", async () => {
-      await sendBookingReminder(fresh);
-      return { sent: true };
+      const now = Date.now();
+      const aheadMs = clampToDaytime(
+        startMs - env.reminderLeadHours * 60 * 60 * 1000,
+        REMINDER_DAYTIME_START_HOUR,
+        REMINDER_DAYTIME_END_HOUR,
+      );
+      const soonMs = clampToDaytime(
+        startMs - env.secondReminderLeadHours * 60 * 60 * 1000,
+        REMINDER_DAYTIME_START_HOUR,
+        REMINDER_DAYTIME_END_HOUR,
+      );
+      return {
+        // Drop a reminder whose (clamped) send time is in the past or at/after the
+        // appointment. The nudge must also land strictly after the day-ahead one.
+        ahead: { ms: aheadMs, due: aheadMs > now && aheadMs < startMs },
+        soon: { ms: soonMs, due: soonMs > now && soonMs < startMs && soonMs > aheadMs },
+      };
     });
 
-    return { sent: true, bookingId };
+    // Stage 1 — day-ahead reminder.
+    if (plan.ahead.due) {
+      await step.sleepUntil("wait-ahead", new Date(plan.ahead.ms));
+      const fresh = await step.run("recheck-ahead", () => getBookingById(bookingId));
+      if (!fresh || fresh.status !== "confirmed") {
+        return { stopped: "no longer confirmed before day-ahead reminder" };
+      }
+      // Each send is its own step, so a retry re-runs only the send (no re-sleep,
+      // no double-text).
+      await step.run("send-ahead", async () => {
+        await sendBookingReminder(fresh, "ahead");
+        return { sent: true };
+      });
+    }
+
+    // Stage 2 — same-day "see you soon" nudge (always later than stage 1, so the
+    // sleeps are correctly ordered).
+    if (plan.soon.due) {
+      await step.sleepUntil("wait-soon", new Date(plan.soon.ms));
+      const fresh = await step.run("recheck-soon", () => getBookingById(bookingId));
+      if (!fresh || fresh.status !== "confirmed") {
+        return { stopped: "no longer confirmed before same-day reminder" };
+      }
+      await step.run("send-soon", async () => {
+        await sendBookingReminder(fresh, "soon");
+        return { sent: true };
+      });
+    }
+
+    return {
+      done: true,
+      bookingId,
+      aheadSent: plan.ahead.due,
+      soonSent: plan.soon.due,
+    };
   },
 );
 
