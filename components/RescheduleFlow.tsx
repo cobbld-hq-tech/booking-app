@@ -4,18 +4,18 @@ import { useActionState, useCallback, useEffect, useState } from "react";
 import type { AvailableSlot } from "@/lib/db";
 import type { DayOption } from "@/lib/time";
 import { rescheduleAction, type ManageState } from "@/app/manage/[id]/actions";
+import { Calendar } from "./Calendar";
+import { TimeSlots } from "./TimeSlots";
 
 interface Props {
   bookingId: string;
   serviceId: number;
-  serviceName: string;
   days: DayOption[];
-  tzLabel: string;
 }
 
 const initial: ManageState = {};
 
-export function RescheduleFlow({ bookingId, serviceId, serviceName, days, tzLabel }: Props) {
+export function RescheduleFlow({ bookingId, serviceId, days }: Props) {
   const [day, setDay] = useState<DayOption | null>(null);
   const [slots, setSlots] = useState<AvailableSlot[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -23,7 +23,6 @@ export function RescheduleFlow({ bookingId, serviceId, serviceName, days, tzLabe
   const [slot, setSlot] = useState<AvailableSlot | null>(null);
   const [state, action, pending] = useActionState(rescheduleAction, initial);
   const [availableDates, setAvailableDates] = useState<Set<string> | null>(null);
-  const [checkingDays, setCheckingDays] = useState(true);
 
   useEffect(() => {
     let active = true;
@@ -33,9 +32,7 @@ export function RescheduleFlow({ bookingId, serviceId, serviceName, days, tzLabe
         const data = await res.json();
         if (active && res.ok) setAvailableDates(new Set<string>(data.availableDates ?? []));
       } catch {
-        // leave null = unrestricted
-      } finally {
-        if (active) setCheckingDays(false);
+        // leave null = unrestricted (fall back to open/closed only)
       }
     })();
     return () => {
@@ -74,65 +71,27 @@ export function RescheduleFlow({ bookingId, serviceId, serviceName, days, tzLabe
   }
 
   return (
-    <div className="panel">
-      <p className="section-label">Pick a new date &middot; {tzLabel.toLowerCase()} time</p>
-      {checkingDays && availableDates === null ? (
-        <p className="loading">Checking open days&hellip;</p>
-      ) : (
-        <div className="day-rail">
-          {days.map((d) => {
-            const noSlots = availableDates !== null && d.isOpen && !availableDates.has(d.dateStr);
-            return (
-              <button
-                key={d.dateStr}
-                type="button"
-                className={`day-chip ${d.isToday ? "today" : ""} ${day?.dateStr === d.dateStr ? "selected" : ""}`}
-                disabled={!d.isOpen || noSlots}
-                title={!d.isOpen ? "Closed" : noSlots ? "No open times" : undefined}
-                onClick={() => chooseDay(d)}
-              >
-                <span className="dow">{d.isToday ? "Today" : d.weekdayShort}</span>
-                <span className="dnum">{d.dayNum}</span>
-                <span className="mon">{d.monthShort}</span>
-              </button>
-            );
-          })}
-        </div>
-      )}
-
-      {day && (
-        <div style={{ marginTop: "1.4rem" }}>
-          <p className="section-label">Open times &middot; {serviceName}</p>
-          <div aria-live="polite" aria-busy={loading}>
-            {loading ? (
-              <p className="loading">Loading times&hellip;</p>
-            ) : slotError ? (
-              <div className="empty">{slotError}</div>
-            ) : slots && slots.length === 0 ? (
-              <div className="empty">
-                No open times on this date.
-                <span className="mono">Try another day</span>
-              </div>
-            ) : (
-              <div className="slot-grid">
-                {slots?.map((s) => (
-                  <button
-                    key={s.startIso}
-                    type="button"
-                    className={`slot ${slot?.startIso === s.startIso ? "selected" : ""}`}
-                    onClick={() => setSlot(s)}
-                  >
-                    {s.label}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+    <div>
+      <div className="datetime-row">
+        <Calendar
+          days={days}
+          availableDates={availableDates}
+          selected={day?.dateStr ?? null}
+          onSelect={chooseDay}
+        />
+        <TimeSlots
+          daySelected={!!day}
+          dayLabel={day ? `${day.weekdayShort}, ${day.monthShort} ${day.dayNum}` : undefined}
+          loading={loading}
+          error={slotError}
+          slots={slots}
+          selectedIso={slot?.startIso ?? null}
+          onSelect={setSlot}
+        />
+      </div>
 
       {slot && day && (
-        <form action={action} className="actions" style={{ marginTop: "1.4rem" }}>
+        <form action={action} style={{ marginTop: 24, maxWidth: 392 }}>
           <input type="hidden" name="id" value={bookingId} />
           <input type="hidden" name="date" value={day.dateStr} />
           <input type="hidden" name="startIso" value={slot.startIso} />
@@ -143,7 +102,9 @@ export function RescheduleFlow({ bookingId, serviceId, serviceName, days, tzLabe
         </form>
       )}
 
-      {state.error && <p className="field-error" role="alert" style={{ marginTop: "1rem" }}>{state.error}</p>}
+      {state.error && (
+        <p className="field-error" role="alert" style={{ marginTop: 16 }}>{state.error}</p>
+      )}
     </div>
   );
 }

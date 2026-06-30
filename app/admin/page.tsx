@@ -6,6 +6,7 @@ import { formatDayLabel, formatTime } from "@/lib/time";
 import { SHOP } from "@/lib/business-hours";
 import { AddTimeOffForm } from "@/components/AddTimeOffForm";
 import { OverdueAlerts } from "@/components/OverdueAlerts";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { cancelBookingAction, markDoneAction, markNoShowAction, logoutAdmin } from "./actions";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -32,7 +33,7 @@ export default async function AdminPage() {
       <header className="topbar">
         <div className="wrap-wide topbar-inner">
           <span className="brand">
-            <span aria-hidden="true" style={{ width: 12, height: 12, borderRadius: 3, background: "var(--tang)", display: "inline-block" }} />
+            <span className="brand-dot" aria-hidden="true" />
             <span className="brand-name">{SHOP.name}</span>
             <span className="mono admin-tag">Owner</span>
           </span>
@@ -46,9 +47,11 @@ export default async function AdminPage() {
                 startIso: b.startIso,
               }))}
             />
-            <a className="mono admin-navlink" href="/admin/dashboard">Dashboard</a>
+            <a className="admin-navlink active" href="/admin">Bookings</a>
+            <a className="admin-navlink" href="/admin/dashboard">Dashboard</a>
+            <ThemeToggle />
             <form action={logoutAdmin}>
-              <button type="submit" className="btn ghost sm on-ink">Sign out</button>
+              <button type="submit" className="btn ghost sm">Sign out</button>
             </form>
           </div>
         </div>

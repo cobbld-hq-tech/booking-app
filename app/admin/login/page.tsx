@@ -10,7 +10,7 @@ export default function AdminLoginPage() {
 
   return (
     <div className="admin-auth">
-      <div className="panel admin-login-card">
+      <div className="admin-login-card">
         <p className="section-label">Owner sign in</p>
         <h1 className="admin-login-title">Permian Auto Works</h1>
         <form action={action}>
@@ -32,6 +32,7 @@ export default function AdminLoginPage() {
             </button>
           </div>
         </form>
+        <p className="admin-login-help">Owner access only.</p>
         <a className="admin-back-link mono" href="/">&larr; Back to booking</a>
       </div>
     </div>

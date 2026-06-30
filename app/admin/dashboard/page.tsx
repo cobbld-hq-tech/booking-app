@@ -4,6 +4,7 @@ import { getAuth, isAdminSession } from "@/lib/auth";
 import { getPaybackStats, getRecentActivity, getOverdueBookings } from "@/lib/db";
 import { formatDayLabel, formatTime } from "@/lib/time";
 import { SHOP } from "@/lib/business-hours";
+import { ThemeToggle } from "@/components/ThemeToggle";
 import { logoutAdmin, markDoneAction, markNoShowAction } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -49,14 +50,16 @@ export default async function DashboardPage() {
       <header className="topbar">
         <div className="wrap-wide topbar-inner">
           <span className="brand">
-            <span aria-hidden="true" style={{ width: 12, height: 12, borderRadius: 3, background: "var(--tang)", display: "inline-block" }} />
+            <span className="brand-dot" aria-hidden="true" />
             <span className="brand-name">{SHOP.name}</span>
             <span className="mono admin-tag">Dashboard</span>
           </span>
           <div className="admin-nav">
-            <a className="mono admin-navlink" href="/admin">Bookings</a>
+            <a className="admin-navlink" href="/admin">Bookings</a>
+            <a className="admin-navlink active" href="/admin/dashboard">Dashboard</a>
+            <ThemeToggle />
             <form action={logoutAdmin}>
-              <button type="submit" className="btn ghost sm on-ink">Sign out</button>
+              <button type="submit" className="btn ghost sm">Sign out</button>
             </form>
           </div>
         </div>
