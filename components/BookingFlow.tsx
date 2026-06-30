@@ -211,7 +211,7 @@ export function BookingFlow({ services, days, shopName, tzLabel }: Props) {
           <div className="confirm-head">
             <div className="check" aria-hidden="true">&#10003;</div>
             <h2>You&rsquo;re booked.</h2>
-            <p>See you at {shopName} — we&rsquo;ll have the bay ready.</p>
+            <p>See you at {shopName}. We&rsquo;ll have the bay ready.</p>
           </div>
           <div className="confirm-body">
             <div className="confirm-row">
@@ -303,7 +303,7 @@ export function BookingFlow({ services, days, shopName, tzLabel }: Props) {
           )}
           <div className="summary-note">
             <span className="dot" aria-hidden="true" />
-            <span>Your slot is held the instant you confirm &mdash; no double-bookings.</span>
+            <span>Your slot is held the instant you confirm. No double-bookings.</span>
           </div>
         </div>
       </aside>
@@ -315,7 +315,6 @@ export function BookingFlow({ services, days, shopName, tzLabel }: Props) {
           <div>
             <p className="book-eyebrow">Step 1 &middot; Service</p>
             <h2 className="book-h2">What can we do for you?</h2>
-            <p className="book-sub">Pick the work you need and we&rsquo;ll show you the next open times.</p>
             <div className="choice-grid">
               {services.map((s) => {
                 const meta = serviceMeta(s.name);
@@ -353,7 +352,7 @@ export function BookingFlow({ services, days, shopName, tzLabel }: Props) {
                 <span className="dot" aria-hidden="true" />
                 <div>
                   <b>That time was just booked.</b>
-                  <p>Someone grabbed it a moment before you. Here are the times still open &mdash; pick another.</p>
+                  <p>Someone grabbed it a moment before you. Here are the times still open. Pick another.</p>
                 </div>
               </div>
             )}
@@ -385,7 +384,7 @@ export function BookingFlow({ services, days, shopName, tzLabel }: Props) {
               &larr; Times
             </button>
             <p className="book-eyebrow">Step 3 &middot; Your details</p>
-            <h2 className="book-h2">Last step &mdash; who&rsquo;s coming in?</h2>
+            <h2 className="book-h2">Last step. Who&rsquo;s coming in?</h2>
 
             <form onSubmit={submit} noValidate style={{ maxWidth: 440 }}>
               <div className={`field ${errors.name ? "invalid" : ""}`}>

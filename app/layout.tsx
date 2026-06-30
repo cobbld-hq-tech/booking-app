@@ -32,10 +32,10 @@ export const metadata: Metadata = {
   icons: { icon: "/favicon.svg" },
 };
 
-// Inline, render-blocking in <head> so a saved dark-mode preference is applied
-// before first paint (no flash of light). Default is the Clean light theme; only
-// an explicit "dark" choice (set by ThemeToggle) opts in.
-const themeScript = `(function(){try{if(localStorage.getItem('pmw-theme')==='dark'){document.documentElement.classList.add('dark')}}catch(e){}})();`;
+// Inline, render-blocking in <head> so the theme is set before first paint (no
+// flash). With no saved choice we follow the OS setting; an explicit pick from
+// ThemeToggle is stored and always wins.
+const themeScript = `(function(){try{var p=localStorage.getItem('pmw-theme');var d=p?p==='dark':window.matchMedia('(prefers-color-scheme: dark)').matches;if(d){document.documentElement.classList.add('dark')}}catch(e){}})();`;
 
 export default function RootLayout({
   children,

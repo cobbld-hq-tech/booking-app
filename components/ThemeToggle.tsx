@@ -4,16 +4,32 @@ import { useEffect, useState } from "react";
 
 /**
  * Moon/sun toggle for the "Midnight" dark mode. The active theme is the `dark`
- * class on <html> (set before paint by the inline script in layout.tsx); this
- * button flips that class and persists the choice. The visible icon is swapped
- * purely in CSS off the same class, so it always matches the real theme and
- * never flashes. Local state only drives the accessible label/pressed value.
+ * class on <html> (set before paint by the inline script in layout.tsx). With no
+ * stored choice the theme follows the OS setting and tracks it live; pressing the
+ * button stores an explicit choice that always wins from then on. The visible icon
+ * is swapped purely in CSS off the same class, so it always matches the real theme
+ * and never flashes. Local state only drives the accessible label/pressed value.
  */
 export function ThemeToggle() {
   const [dark, setDark] = useState(false);
 
   useEffect(() => {
     setDark(document.documentElement.classList.contains("dark"));
+    // Follow OS changes live, but only until the user sets an explicit choice.
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const onChange = (e: MediaQueryListEvent) => {
+      let stored: string | null = null;
+      try {
+        stored = localStorage.getItem("pmw-theme");
+      } catch {
+        // ignore
+      }
+      if (stored) return;
+      document.documentElement.classList.toggle("dark", e.matches);
+      setDark(e.matches);
+    };
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
   }, []);
 
   function toggle() {
