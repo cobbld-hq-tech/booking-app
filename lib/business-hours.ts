@@ -54,9 +54,11 @@ export const SLOT_STEP_MINUTES = 30;
 /** How many days ahead (including today) a customer may book. */
 export const BOOKING_HORIZON_DAYS = 30;
 
-/** Daytime window (shop-local hour, 24h) that BOTH reminder sends are pulled into,
- *  so a timer never texts in the small hours (under any lead, across DST). A send
- *  before the window moves to its start; one at/after moves to the next day's
- *  start; a send that would land at/after the appointment is dropped. */
-export const REMINDER_DAYTIME_START_HOUR = 8;
+/** Daytime window (shop-local hour, 24h) the reminder nudge send is pulled into,
+ *  so a timer never texts in the small hours (under any lead, across DST). The
+ *  start is early (6am) on purpose: the shop opens at 7:30, so a 1h reminder for an
+ *  early slot lands ~6:30am and must still go out. A send before the window moves to
+ *  its start; one at/after moves to the next day's start; a send that would land
+ *  at/after the appointment is dropped. */
+export const REMINDER_DAYTIME_START_HOUR = 6;
 export const REMINDER_DAYTIME_END_HOUR = 21;

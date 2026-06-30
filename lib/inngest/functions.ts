@@ -5,12 +5,15 @@ import { clampToDaytime } from "../time";
 import { env } from "../env";
 import { REMINDER_DAYTIME_START_HOUR, REMINDER_DAYTIME_END_HOUR } from "../business-hours";
 
-// Phase 6: the appointment reminders. Two durable waits hang off one booking:
-// a day-ahead reminder (its job is to give time to reschedule, which lets the
-// shop refill the slot) and a same-day "see you soon" nudge. The canonical
-// Inngest shape: an event fires, the function sleeps, it wakes and re-reads FRESH
-// state, then it acts or stops. cancelOn kills the whole run on cancellation; the
-// post-sleep status re-reads are the backstop (and also catch completed/no_show).
+// Phase 6: the same-day reminder nudge. The booking confirmation is a plain send
+// on insert (see app/api/bookings/route.ts) — emailed when an address was given —
+// so there is no separate day-ahead reminder. This durable function sends a single
+// "see you soon" nudge REMINDER_LEAD_HOURS before the appointment.
+//
+// Canonical Inngest shape: the event fires, the function sleeps durably, it wakes
+// and re-reads FRESH state, then it acts or stops. cancelOn kills the run on
+// cancellation; the post-sleep status re-read is the backstop (and also catches a
+// booking marked completed / no_show during the wait).
 export const bookingReminder = inngest.createFunction(
   {
     id: "booking-reminder",
@@ -25,69 +28,41 @@ export const bookingReminder = inngest.createFunction(
       return { skipped: "not confirmed when scheduled" };
     }
 
-    // Freeze BOTH reminder decisions at schedule time, INSIDE a step, so the
-    // results are memoized. If `<= Date.now()` were evaluated outside a step it
-    // would be re-checked against the elapsed clock on every wake replay and flip
-    // (the bug that silently skipped the single reminder). The send instants are
-    // pulled into the daytime window so neither reminder texts in the small hours
-    // (under any lead, across DST); a send that clamps to at/after the appointment
-    // is dropped. Values are numbers — step results must be JSON-serializable.
-    const plan = await step.run("plan-reminders", () => {
+    // Freeze the send decision at schedule time, INSIDE a step, so its result is
+    // memoized. A `Date.now()` comparison outside a step would be re-checked on the
+    // wake replay against the elapsed clock and flip. The send instant is clamped
+    // into the daytime window so a timer never texts in the small hours; a send
+    // that clamps to at/after the appointment is dropped. Number, not Date.
+    const plan = await step.run("plan-reminder", () => {
       const startMs = new Date(initial.startIso).getTime();
-      const now = Date.now();
-      const aheadMs = clampToDaytime(
+      const sendMs = clampToDaytime(
         startMs - env.reminderLeadHours * 60 * 60 * 1000,
         REMINDER_DAYTIME_START_HOUR,
         REMINDER_DAYTIME_END_HOUR,
       );
-      const soonMs = clampToDaytime(
-        startMs - env.secondReminderLeadHours * 60 * 60 * 1000,
-        REMINDER_DAYTIME_START_HOUR,
-        REMINDER_DAYTIME_END_HOUR,
-      );
-      return {
-        // Drop a reminder whose (clamped) send time is in the past or at/after the
-        // appointment. The nudge must also land strictly after the day-ahead one.
-        ahead: { ms: aheadMs, due: aheadMs > now && aheadMs < startMs },
-        soon: { ms: soonMs, due: soonMs > now && soonMs < startMs && soonMs > aheadMs },
-      };
+      return { sendMs, due: sendMs > Date.now() && sendMs < startMs };
+    });
+    if (!plan.due) {
+      // Same-day booking (the confirmation already covers it) or the nudge clamped
+      // to at/after the appointment (e.g. a very early slot). Nothing to send.
+      return { skipped: "no nudge due" };
+    }
+
+    await step.sleepUntil("wait-for-nudge", new Date(plan.sendMs));
+
+    const fresh = await step.run("recheck-booking", () => getBookingById(bookingId));
+    if (!fresh || fresh.status !== "confirmed") {
+      return { stopped: "no longer confirmed after wait" };
+    }
+
+    // The send is its own step, so a retry re-runs only the send (no re-sleep, no
+    // double-text).
+    await step.run("send-nudge", async () => {
+      await sendBookingReminder(fresh);
+      return { sent: true };
     });
 
-    // Stage 1 — day-ahead reminder.
-    if (plan.ahead.due) {
-      await step.sleepUntil("wait-ahead", new Date(plan.ahead.ms));
-      const fresh = await step.run("recheck-ahead", () => getBookingById(bookingId));
-      if (!fresh || fresh.status !== "confirmed") {
-        return { stopped: "no longer confirmed before day-ahead reminder" };
-      }
-      // Each send is its own step, so a retry re-runs only the send (no re-sleep,
-      // no double-text).
-      await step.run("send-ahead", async () => {
-        await sendBookingReminder(fresh, "ahead");
-        return { sent: true };
-      });
-    }
-
-    // Stage 2 — same-day "see you soon" nudge (always later than stage 1, so the
-    // sleeps are correctly ordered).
-    if (plan.soon.due) {
-      await step.sleepUntil("wait-soon", new Date(plan.soon.ms));
-      const fresh = await step.run("recheck-soon", () => getBookingById(bookingId));
-      if (!fresh || fresh.status !== "confirmed") {
-        return { stopped: "no longer confirmed before same-day reminder" };
-      }
-      await step.run("send-soon", async () => {
-        await sendBookingReminder(fresh, "soon");
-        return { sent: true };
-      });
-    }
-
-    return {
-      done: true,
-      bookingId,
-      aheadSent: plan.ahead.due,
-      soonSent: plan.soon.due,
-    };
+    return { sent: true, bookingId };
   },
 );
 
