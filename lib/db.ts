@@ -357,6 +357,36 @@ export async function getUpcomingBookings(): Promise<AdminBooking[]> {
   }));
 }
 
+/**
+ * Confirmed bookings whose appointment day has fully passed but were never marked
+ * done or no-show — the "needs closing out" worklist behind the dashboard alert.
+ * The cutoff is the start of today (shop-local), so a job finished earlier today
+ * is not nagged until tomorrow ("past the day it is due"). These are otherwise
+ * invisible: getUpcomingBookings only returns end_time > now().
+ */
+export async function getOverdueBookings(): Promise<AdminBooking[]> {
+  const { year, month, day } = parseDateString(todayLocalDateString());
+  const startOfToday = zonedWallTimeToUtc(year, month, day, 0, 0).toISOString();
+  const rows = await sql()`
+    SELECT b.id, s.name AS service_name, b.customer_name, b.customer_phone,
+           b.customer_email, b.start_time, b.end_time, b.status
+    FROM bookings b
+    JOIN services s ON s.id = b.service_id
+    WHERE b.status = 'confirmed' AND b.end_time < ${startOfToday}
+    ORDER BY b.start_time ASC
+  `;
+  return rows.map((r) => ({
+    id: String(r.id),
+    serviceName: String(r.service_name),
+    customerName: String(r.customer_name),
+    customerPhone: String(r.customer_phone),
+    customerEmail: r.customer_email ? String(r.customer_email) : null,
+    startIso: new Date(r.start_time).toISOString(),
+    endIso: new Date(r.end_time).toISOString(),
+    status: String(r.status),
+  }));
+}
+
 /** Cancel a booking. Sets status = 'cancelled', which drops it out of the
  *  exclusion constraint and instantly reopens its slot. Returns false if the id
  *  was unknown or already cancelled. */

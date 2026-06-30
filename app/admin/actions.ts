@@ -92,6 +92,7 @@ export async function markDoneAction(formData: FormData): Promise<void> {
     }
   }
   revalidatePath("/admin");
+  revalidatePath("/admin/dashboard");
 }
 
 /** Mark a no-show — emits booking.no_show (the trigger for the future follow-up). */
@@ -107,6 +108,7 @@ export async function markNoShowAction(formData: FormData): Promise<void> {
     }
   }
   revalidatePath("/admin");
+  revalidatePath("/admin/dashboard");
 }
 
 /** Add a time-off block. Date + start/end are entered in shop-local (Central)

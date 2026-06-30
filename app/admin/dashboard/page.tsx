@@ -1,9 +1,10 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { getAuth, isAdminSession } from "@/lib/auth";
-import { getPaybackStats, getRecentActivity } from "@/lib/db";
+import { getPaybackStats, getRecentActivity, getOverdueBookings } from "@/lib/db";
 import { formatDayLabel, formatTime } from "@/lib/time";
 import { SHOP } from "@/lib/business-hours";
+import { OverdueAlerts } from "@/components/OverdueAlerts";
 import { logoutAdmin } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -21,11 +22,15 @@ function badgeClass(type: string): string {
   return "badge-tang";
 }
 
-export default async function PaybackPage() {
+export default async function DashboardPage() {
   const session = await getAuth().api.getSession({ headers: await headers() });
   if (!isAdminSession(session)) redirect("/admin/login");
 
-  const [stats, activity] = await Promise.all([getPaybackStats(), getRecentActivity(14)]);
+  const [stats, activity, overdue] = await Promise.all([
+    getPaybackStats(),
+    getRecentActivity(14),
+    getOverdueBookings(),
+  ]);
   const served = stats.completed + stats.noShows;
   // Real appointments, excluding cancellations (which include reschedule churn).
   const booked = stats.confirmed + stats.completed + stats.noShows;
@@ -47,9 +52,18 @@ export default async function PaybackPage() {
           <span className="brand">
             <span aria-hidden="true" style={{ width: 12, height: 12, borderRadius: 3, background: "var(--tang)", display: "inline-block" }} />
             <span className="brand-name">{SHOP.name}</span>
-            <span className="mono admin-tag">Payback</span>
+            <span className="mono admin-tag">Dashboard</span>
           </span>
           <div className="admin-nav">
+            <OverdueAlerts
+              items={overdue.map((b) => ({
+                id: b.id,
+                serviceName: b.serviceName,
+                customerName: b.customerName,
+                customerPhone: b.customerPhone,
+                startIso: b.startIso,
+              }))}
+            />
             <a className="mono admin-navlink" href="/admin">Bookings</a>
             <form action={logoutAdmin}>
               <button type="submit" className="btn ghost sm on-ink">Sign out</button>
@@ -118,7 +132,7 @@ export default async function PaybackPage() {
       <footer className="foot">
         <div className="wrap-wide foot-inner">
           <a className="mark-line" href="/admin">&larr; Owner console</a>
-          <span className="mono">{SHOP.name} &middot; payback</span>
+          <span className="mono">{SHOP.name} &middot; dashboard</span>
         </div>
       </footer>
     </div>

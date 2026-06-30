@@ -35,7 +35,7 @@ export default async function AdminPage() {
             <span className="mono admin-tag">Owner</span>
           </span>
           <div className="admin-nav">
-            <a className="mono admin-navlink" href="/admin/payback">Payback</a>
+            <a className="mono admin-navlink" href="/admin/dashboard">Dashboard</a>
             <form action={logoutAdmin}>
               <button type="submit" className="btn ghost sm on-ink">Sign out</button>
             </form>
